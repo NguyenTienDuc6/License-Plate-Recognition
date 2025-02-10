@@ -1,13 +1,16 @@
 import os
 import cv2
 import torch
+import csv
+import datetime
 import function.utils_rotate as utils_rotate
 import function.helper as helper
 
 # Load models
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # License plate detection model
-yolo_LP_detect = torch.hub.load('yolov5', 'custom', path='model/LP_detector_nano_61.pt', force_reload=True, source='local').to(device)
+yolo_LP_detect = torch.hub.load('yolov5', 'custom', path='model/LP_detector_nano_61.pt', 
+                                force_reload=True, source='local').to(device)
 # License plate OCR model
 yolo_license_plate = torch.hub.load('yolov5', 'custom', path='model/LP_ocr_nano_62.pt', force_reload=True, source='local').to(device)
 yolo_license_plate.conf = 0.60
@@ -20,11 +23,14 @@ output_folder = "detected_license_plates"
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
 
-# Single text file to store all detected license plate numbers
-all_license_plates_file = os.path.join(output_folder, "all_license_plates.txt")
+# Path for the CSV file to store license plate data
+csv_file_path = os.path.join(output_folder, "license_plate_data.csv")
 
-# Open the file for writing (once, outside the loop)
-with open(all_license_plates_file, "w") as all_lp_file:
+# Open the CSV file for writing (once, outside the loop)
+with open(csv_file_path, mode='w', newline='') as csv_file:
+    csv_writer = csv.writer(csv_file)
+    # Write the header row
+    csv_writer.writerow(["Image", "License Plate", "Date", "Time"])
 
     # Loop through all images in the folder
     for filename in os.listdir(input_folder):
@@ -45,7 +51,16 @@ with open(all_license_plates_file, "w") as all_lp_file:
 
             # Detect plates in the image
             plates = yolo_LP_detect(rgb_image, size=640)
+            
             list_plates = plates.pandas().xyxy[0].values.tolist()
+
+            # Get the file's creation or modification date (using modification date)
+            image_modification_time = os.path.getmtime(image_path)
+            # Convert to a readable date format
+            image_date = datetime.datetime.fromtimestamp(image_modification_time).strftime("%Y-%m-%d")
+            
+            # Get the current time when processing the image
+            current_time = datetime.datetime.now().strftime("%H:%M:%S")
 
             # Track all license plates for this image
             list_read_plates = set()
@@ -67,14 +82,14 @@ with open(all_license_plates_file, "w") as all_lp_file:
                     if lp != "unknown":
                         break
 
-            # Write all detected license plates from the current image to the single text file
+            # Write all detected license plates from the current image to the CSV file
             for license_plate in list_read_plates:
-                all_lp_file.write(f"{license_plate}\n")
+                csv_writer.writerow([filename, license_plate, image_date, current_time])
 
             # Save the annotated image with detected plates and labels
             annotated_image_path = os.path.join(output_folder, f"annotated_{filename}")
             cv2.imwrite(annotated_image_path, image)
 
             print(f"Processed and saved: {annotated_image_path}")
-        
+
 print("Processing complete.")
